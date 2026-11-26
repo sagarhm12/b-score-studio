@@ -43,7 +43,7 @@ B-Score Studio is a browser-based Credit Risk Scorecard Development platform for
 
 Your application will be available at:
 
-`https://YOUR_USERNAME.github.io/REPOSITORY_NAME/`
+`https://sagarhm12.github.io/b-score-studio/`
 
 ## Privacy
 
