@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>B-Score Studio</title>
+<style>
+:root{--bg:#f3f5f4;--card:#fff;--tx:#17211d;--mu:#667570;--bd:#dbe2df;--ac:#0e6b57;--ok:#1f9d6b;--er:#c9483e;--wa:#c98a14;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1513;--card:#161f1c;--tx:#e4ece8;--mu:#8fa099;--bd:#26332e;--ac:#3fc0a0;--ok:#4cc58f;--er:#ee7468;--wa:#e0a93c;color-scheme:dark}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 "Source Sans 3",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--card)}
+header{display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--bd);position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+h1{font-size:18px;margin:0;letter-spacing:-.01em}h2{font-size:15px;margin:0 0 8px}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+button,select,input{font:inherit;color:var(--tx)}
+button{background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;cursor:pointer}
+button:hover{border-color:var(--ac)}button.p,nav button.on{background:var(--ac);color:var(--bg);border-color:var(--ac)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+select,input[type=number]{background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:4px 6px}
+main{padding:16px;max-width:1280px;margin:0 auto}section{display:none}section.on{display:block}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:14px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+.split{display:grid;grid-template-columns:250px 1fr;gap:12px}@media(max-width:760px){.split{grid-template-columns:1fr}}
+.ch{height:300px;width:100%}.sc{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:5px 8px;border-bottom:1px solid var(--bd);text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{color:var(--mu);font-weight:600}
+.vi{display:flex;justify-content:space-between;padding:5px 8px;border-radius:6px;cursor:pointer}.vi:hover{background:var(--bg)}.vi.on{background:var(--ac);color:var(--bg)}
+#vl{max-height:75vh;overflow:auto;padding:6px}
+.pill{padding:1px 8px;border-radius:10px;border:1px solid currentColor;font-size:12px}.g{color:var(--ok)}.w{color:var(--wa)}.r{color:var(--er)}.m{color:var(--mu)}
+.row{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:10px}
+.kpi{display:flex;gap:24px;flex-wrap:wrap}.kpi b{display:block;font-size:22px;letter-spacing:-.02em}
+textarea{width:100%;height:120px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font:12px monospace}
+</style></head><body>
+<header><h1>B-Score Studio</h1><nav id="nav"></nav></header>
+<main>
+<section id="s0"><div class="card"><h2>Load a dataset</h2><div class="row">
+<input type="file" id="f" accept=".csv"><button onclick="load(sample())">Use sample credit data</button>
+<label id="tgl" hidden>Target column <select id="tg" onchange="setTarget()"></select></label></div>
+<p class="m">Everything runs in your browser; no data leaves this page. Target must have two values (bad = 1, bad, default, yes, true, otherwise the rarer value).</p></div>
+<div id="prof"></div></section>
+<section id="s1"><div class="split"><div class="card" id="vl"></div><div id="bd"></div></div></section>
+<section id="s2"><div class="card" id="sel"></div></section>
+<section id="s3"><div id="md"></div></section>
+<section id="s4"><div id="cd"></div></section>
+<section id="s5"><div class="card"><h2>Export CSV reports</h2><div class="row">
+<button onclick="ex('fine')">Fine binning</button><button onclick="ex('coarse')">Coarse binning + WoE</button><button onclick="ex('iv')">IV summary</button><button onclick="ex('model')">Model performance</button><button onclick="ex('card')">Scorecard points</button><button onclick="ex('log')">Override log</button></div>
+<p class="m">If the download is blocked by your browser, copy the text below.</p><textarea id="ta" readonly></textarea></div></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script>
+const $=s=>document.querySelector(s),css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fx=(x,d=3)=>isFinite(x)?x.toFixed(d):'-',pc=x=>(100*x).toFixed(1)+'%',sig=z=>1/(1+Math.exp(-z));
+let D=null,V={},Y=[],N=0,Bd=0,Gd=0,cv=null,M=null,S={sel:{}},cfg={fine:20,max:6},cur=0;
+const TABS=['Data','Binning','Selection','Models','Scorecard','Export'];
+$('#nav').innerHTML=TABS.map((t,i)=>`<button onclick="go(${i})">${i+1}. ${t}</button>`).join('');
+function go(i){cur=i;document.querySelectorAll('section').forEach((s,k)=>s.classList.toggle('on',k==i));document.querySelectorAll('nav button').forEach((b,k)=>b.classList.toggle('on',k==i));[renderData,renderBin,renderSel2,renderModel,renderCard,()=>{}][i]()}
+function ch(id,o){const d=document.getElementById(id),c=echarts.getInstanceByDom(d)||echarts.init(d);o.textStyle={color:css('--tx')};o.tooltip=o.tooltip||{trigger:'axis'};c.setOption(o,true)}
+addEventListener('resize',()=>document.querySelectorAll('.ch').forEach(d=>{const c=echarts.getInstanceByDom(d);c&&c.resize()}));
+const GR={left:10,right:10,top:44,bottom:10,containLabel:true};
+function parseCSV(t){const r=[];let row=[],c='',q=false;for(let i=0;i<t.length;i++){const h=t[i];if(q){if(h=='"'){if(t[i+1]=='"'){c+='"';i++}else q=false}else c+=h}else if(h=='"')q=true;else if(h==','){row.push(c);c=''}else if(h=='\n'||h=='\r'){if(h=='\r'&&t[i+1]=='\n')i++;row.push(c);c='';if(row.length>1||row[0]!=='')r.push(row);row=[]}else c+=h}
+if(c!==''||row.length){row.push(c);r.push(row)}return r}
+$('#f').onchange=e=>{const r=new FileReader();r.onload=()=>load(parseCSV(r.result));r.readAsText(e.target.files[0])};
+function sample(){let s=42;const R=()=>(s=(s*1664525+1013904223)%4294967296)/4294967296,Nm=()=>Math.sqrt(-2*Math.log(R()+1e-12))*Math.cos(6.2832*R());
+const m=[['age','income','utilization','delinq_12m','emp_type','region','tenure_m','noise','bad']],E=['Salaried','Self-employed','Contract','Retired'];
+for(let i=0;i<6000;i++){const age=Math.round(Math.max(18,Math.min(75,40+12*Nm()))),inc=Math.round(Math.exp(10.5+.5*Nm())),ut=Math.min(1.5,Math.max(0,.4+.25*Nm())),dl=R()<.7?0:Math.floor(R()*4)+1,em=E[Math.floor(R()*4)],rg='R'+Math.floor(R()*5),te=Math.round(Math.max(0,36+30*Nm())),
+z=-2.5-.03*(age-40)-.9*(Math.log(inc)-10.5)+2.2*(ut-.4)+.55*dl+(em=='Contract'?.6:em=='Self-employed'?.3:0)-.008*(te-36);
+m.push([age,R()<.08?'':inc,R()<.03?'':ut.toFixed(3),dl,em,rg,te,Nm().toFixed(3),R()<sig(z)?1:0])}return m}
+function load(m){const h=m[0],rows=m.slice(1);D={h,raw:h.map((_,j)=>rows.map(r=>String(r[j]??'').trim()))};$('#tg').innerHTML=h.map(x=>`<option>${x}</option>`).join('');$('#tgl').hidden=false;
+const g=h.findIndex(x=>/^(target|bad|default|y|label|flag)/i.test(x));$('#tg').value=h[g>=0?g:h.length-1];setTarget()}
+function setTarget(){const t=$('#tg').value,j=D.h.indexOf(t),mi=v=>v===''||/^(na|nan|null|none|\.)$/i.test(v);
+const keep=[];D.raw[j].forEach((v,i)=>{if(!mi(v))keep.push(i)});const tv=keep.map(i=>D.raw[j][i]),u=[...new Set(tv)];V={};M=null;S={sel:{}};cv=null;
+if(u.length!=2){$('#prof').innerHTML=`<div class="card r">Target needs exactly two distinct values; found ${u.length}. Pick another column.</div>`;go(0);return}
+const bs=['1','bad','default','yes','true','y','b'];let bv=u.find(x=>bs.includes(x.toLowerCase()));if(bv===undefined){const c=u.map(x=>tv.filter(z=>z===x).length);bv=u[c[0]<=c[1]?0:1]}
+Y=tv.map(x=>x===bv?1:0);N=Y.length;Bd=Y.reduce((a,b)=>a+b,0);Gd=N-Bd;
+D.h.forEach((name,k)=>{if(k==j)return;const col=keep.map(i=>D.raw[k][i]),ms=col.map(mi),ne=col.filter((_,i)=>!ms[i]),uq=new Set(ne).size,nn=ne.filter(x=>!isNaN(+x)).length,num=ne.length>0&&nn>=.95*ne.length&&uq>10;
+const v={name,num,miss:ms.filter(Boolean).length/N,uq,vals:num?col.map((x,i)=>ms[i]||isNaN(+x)?NaN:+x):col.map((x,i)=>ms[i]?null:x)};
+if(uq<2)v.skip='constant';else if(!num&&uq>50)v.skip='high cardinality';if(!v.skip)init(v);V[name]=v});go(0)}
+function init(v){if(v.num){const s=v.vals.filter(x=>!isNaN(x)).sort((a,b)=>a-b),n=cfg.fine,c=new Set();for(let k=1;k<n;k++){const x=s[Math.floor(s.length*k/n)];if(x<s[s.length-1])c.add(x)}v.cuts=[...c].sort((a,b)=>a-b)}
+else{const m={};v.vals.forEach((x,i)=>{if(x!==null){(m[x]=m[x]||[0,0]);m[x][0]++;m[x][1]+=Y[i]}});v.groups=Object.keys(m).sort((a,b)=>m[a][1]/m[a][0]-m[b][1]/m[b][0]).map(x=>[x])}
+v.prev=null;asg(v);v.fine=tab(v).rows}
+function asg(v){const k=v.num?v.cuts.length+1:v.groups.length;v.k=k;
+if(v.num)v.idx=v.vals.map(x=>{if(isNaN(x))return k;let lo=0,hi=k-1;while(lo<hi){const m=(lo+hi)>>1;if(x<=v.cuts[m])hi=m;else lo=m+1}return lo});
+else{const mp={};v.groups.forEach((g,i)=>g.forEach(c=>mp[c]=i));v.idx=v.vals.map(x=>x===null?k:mp[x])}v.t=null}
+function tab(v){if(v.t)return v.t;const nb=v.k+1,n=Array(nb).fill(0),b=Array(nb).fill(0);v.idx.forEach((i,r)=>{n[i]++;b[i]+=Y[r]});
+const f=x=>(+x.toPrecision(4)).toString(),lab=i=>i==v.k?'Missing':!v.num?v.groups[i].join(' | '):v.k==1?'All':i==0?`≤ ${f(v.cuts[0])}`:i==v.k-1?`> ${f(v.cuts[i-1])}`:`(${f(v.cuts[i-1])}, ${f(v.cuts[i])}]`;
+const rows=[];let iv=0,mx=0;for(let i=0;i<nb;i++){if(i==v.k&&!n[i])continue;const good=n[i]-b[i],g=Math.max(good,.5)/Gd,bb=Math.max(b[i],.5)/Bd,woe=Math.log(g/bb),c=(g-bb)*woe;iv+=c;mx=Math.max(mx,n[i]/N);
+rows.push({i,label:lab(i),n:n[i],pct:n[i]/N,good,bad:b[i],br:b[i]/n[i],woe,iv:c,miss:i==v.k})}
+const nm=rows.filter(r=>!r.miss).map(r=>r.br);let up=0,dn=0;for(let i=1;i<nm.length;i++){nm[i]>nm[i-1]?up++:nm[i]<nm[i-1]&&dn++}
+return v.t={rows,iv,maxc:mx,mono:!v.num||up==0||dn==0}}
+function mrg(v,i){if(v.num)v.cuts.splice(i,1);else{v.groups[i]=v.groups[i].concat(v.groups[i+1]);v.groups.splice(i+1,1)}}
+function auto(v){for(let g=0;g<300;g++){const rs=tab(v).rows.filter(r=>!r.miss);if(rs.length<=2)break;let i=-1;const sm=rs.findIndex(r=>r.n<.05*N);
+if(sm>=0)i=sm<rs.length-1?sm:sm-1;
+else if(v.num){const d=Math.sign(rs.reduce((a,r,j)=>a+(j-(rs.length-1)/2)*(r.br),0))||1;for(let j=0;j<rs.length-1;j++)if((rs[j+1].br-rs[j].br)*d<0){i=j;break}}
+if(i<0&&rs.length>cfg.max){let b=1e9;for(let j=0;j<rs.length-1;j++){const d=Math.abs(rs[j+1].woe-rs[j].woe);if(d<b){b=d;i=j}}}
+if(i<0)break;mrg(v,i);asg(v)}}
+function mut(f){const v=V[cv],t=tab(v);v.prev={iv:t.iv,nb:t.rows.length};f(v);asg(v);renderBin()}
+const mg=i=>mut(v=>mrg(v,i));
+function sp(i){mut(v=>{if(v.num){const a=v.vals.filter((x,r)=>v.idx[r]==i).sort((p,q)=>p-q),hi=i<v.cuts.length?v.cuts[i]:Infinity;let m=a[a.length>>1];if(m>=hi){const l=a.filter(x=>x<hi);m=l[l.length-1]}if(m!==undefined&&m>(i>0?v.cuts[i-1]:-Infinity))v.cuts.splice(i,0,m)}else v.groups.splice(i,1,...v.groups[i].map(x=>[x]))})}
+function setFine(n){cfg.fine=+n;Object.values(V).forEach(v=>{if(v.num)init(v)});renderBin()}
+const autoOne=()=>mut(v=>auto(v)),autoAll=()=>{Object.values(V).forEach(v=>{if(!v.skip)auto(v)});renderBin()},reset=()=>{init(V[cv]);renderBin()};
+const ivc=iv=>iv<.02?'r':iv<.1?'m':iv<.3?'g':iv<.5?'g':'w';
+function rec(v){const t=tab(v),iv=t.iv,fl=[];const r=band(iv);
+if(!t.mono)fl.push('non-monotonic');if(v.miss>.5)fl.push('high missing');if(t.maxc>.9)fl.push('concentrated');return{r,fl,iv,keep:iv>=TH[0]&&iv<TH[3]&&!fl.length}}
+function renderData(){const vs=Object.values(V);if(!vs.length){$('#prof').innerHTML='';return}
+$('#prof').innerHTML=`<div class="card kpi"><div><b>${N.toLocaleString()}</b>rows</div><div><b>${vs.length}</b>features</div><div><b>${vs.filter(v=>v.num).length}/${vs.filter(v=>!v.num).length}</b>numeric / categorical</div><div><b>${pc(Bd/N)}</b>bad rate (${Bd.toLocaleString()} bad, ${Gd.toLocaleString()} good)</div></div>
+<div class="card sc"><h2>Data quality</h2><table><tr><th>Variable</th><th>Type</th><th>Missing</th><th>Unique</th><th>Check</th></tr>${vs.map(v=>`<tr><td>${v.name}</td><td>${v.num?'numeric':'categorical'}</td><td class="${v.miss>.3?'r':v.miss>.05?'w':''}">${pc(v.miss)}</td><td>${v.uq}</td><td class="${v.skip?'r':'g'}">${v.skip?'excluded: '+v.skip:v.miss>.5?'high missing':'ok'}</td></tr>`).join('')}</table></div>
+<div class="card"><button class="p" onclick="go(1)">Continue to binning</button></div>`}
+function renderBin(){const vs=Object.values(V).filter(v=>!v.skip);if(!vs.length){$('#vl').innerHTML='';$('#bd').innerHTML='<div class="card">Load data in step 1 first.</div>';return}
+if(!cv||!V[cv]||V[cv].skip)cv=vs.slice().sort((a,b)=>tab(b).iv-tab(a).iv)[0].name;
+$('#vl').innerHTML=vs.map(v=>`<div class="vi ${v.name==cv?'on':''}" onclick="cv='${v.name}';renderBin()"><span>${v.name}</span><span>${fx(tab(v).iv)}</span></div>`).join('');
+const v=V[cv],t=tab(v),p=v.prev;
+$('#bd').innerHTML=`<div class="card"><div class="row"><b>${v.name}</b><span class="pill ${ivc(t.iv)}">IV ${fx(t.iv)} · ${rec(v).r}</span><span class="m">${t.mono?'monotonic':'non-monotonic'}</span>
+${p?`<span class="m">Before: IV ${fx(p.iv)}, ${p.nb} bins → Now: IV ${fx(t.iv)}, ${t.rows.length} bins</span>`:''}</div>
+<div class="row"><label>Fine bins <input type="number" min="5" max="50" value="${cfg.fine}" style="width:60px" onchange="setFine(this.value)"></label>
+<label>Max coarse bins <input type="number" min="2" max="12" value="${cfg.max}" style="width:60px" onchange="cfg.max=+this.value"></label>
+<button class="p" onclick="autoOne()">Auto coarse (monotonic WoE)</button><button onclick="autoAll()">Auto coarse all</button><button onclick="reset()">Reset to fine bins</button></div>
+<div class="grid"><div class="ch" id="c1"></div><div class="ch" id="c2"></div></div></div>
+<div class="card sc"><table><tr><th>Bin</th><th>Count</th><th>Share</th><th>Good</th><th>Bad</th><th>Bad rate</th><th>WoE</th><th>IV</th><th>Edit</th></tr>
+${t.rows.map(r=>`<tr><td>${r.label}</td><td>${r.n}</td><td>${pc(r.pct)}</td><td>${r.good}</td><td>${r.bad}</td><td>${pc(r.br)}</td><td>${fx(r.woe)}</td><td>${fx(r.iv,4)}</td><td>${r.miss?'<span class="m">kept separate</span>':`${r.i<v.k-1?`<button onclick="mg(${r.i})">Merge with next</button> `:''}<button onclick="sp(${r.i})">Split</button>`}</td></tr>`).join('')}</table></div>`;
+const L=t.rows.map(r=>r.label),ac=css('--ac'),er=css('--er');
+ch('c1',{title:{text:'WoE and bad rate',textStyle:{fontSize:13,color:css('--tx')}},grid:{...GR,right:20},legend:{top:0,right:0,textStyle:{color:css('--mu')}},xAxis:{type:'category',data:L,axisLabel:{rotate:L.length>5?30:0}},yAxis:[{type:'value',name:'WoE'},{type:'value',name:'Bad rate',axisLabel:{formatter:x=>(x*100).toFixed(0)+'%'},splitLine:{show:false}}],
+series:[{name:'WoE',type:'bar',data:t.rows.map(r=>({value:+r.woe.toFixed(3),itemStyle:{color:r.woe>=0?ac:er}}))},{name:'Bad rate',type:'line',yAxisIndex:1,data:t.rows.map(r=>+r.br.toFixed(4)),itemStyle:{color:css('--wa')}}]});
+ch('c2',{title:{text:'Distribution and IV contribution',textStyle:{fontSize:13,color:css('--tx')}},grid:{...GR,right:20},legend:{top:0,right:0,textStyle:{color:css('--mu')}},xAxis:{type:'category',data:L,axisLabel:{rotate:L.length>5?30:0}},yAxis:[{type:'value',name:'Count'},{type:'value',name:'IV',splitLine:{show:false}}],
+series:[{name:'Good',type:'bar',stack:'a',data:t.rows.map(r=>r.good),itemStyle:{color:ac}},{name:'Bad',type:'bar',stack:'a',data:t.rows.map(r=>r.bad),itemStyle:{color:er}},{name:'IV',type:'line',yAxisIndex:1,data:t.rows.map(r=>+r.iv.toFixed(4)),itemStyle:{color:css('--wa')}}]})}
+function renderSel(){const vs=Object.values(V).filter(v=>!v.skip);if(!vs.length){$('#sel').innerHTML='Load data first.';return}
+vs.sort((a,b)=>tab(b).iv-tab(a).iv);
+$('#sel').innerHTML=`<h2>Variable selection advisor</h2><p class="m">IV bands: below 0.02 reject, 0.02 to 0.1 weak, 0.1 to 0.3 medium, 0.3 to 0.5 strong, above 0.5 review for overfitting. Flags: non-monotonic WoE, over 50% missing, over 90% in one bin.</p><div class="sc"><table><tr><th>Use</th><th>Variable</th><th>IV</th><th>Bins</th><th>Missing</th><th>Top bin share</th><th>Recommendation</th><th>Flags</th></tr>
+${vs.map(v=>{const r=rec(v),t=tab(v),on=S.sel[v.name]??r.keep;return`<tr><td><input type="checkbox" ${on?'checked':''} onchange="S.sel['${v.name}']=this.checked"></td><td>${v.name}</td><td>${fx(t.iv)}</td><td>${t.rows.length}</td><td>${pc(v.miss)}</td><td>${pc(t.maxc)}</td><td class="${r.keep?'g':r.r=='Reject'?'r':'w'}">${r.keep?'Keep · ':''}${r.r}</td><td class="m">${r.fl.join(', ')||'-'}</td></tr>`}).join('')}</table></div>
+<div class="row" style="margin-top:12px"><button class="p" onclick="train();go(3)">Train logistic regression</button></div>`}
+function solve(A,b){const n=b.length;for(let i=0;i<n;i++){let p=i;for(let r=i+1;r<n;r++)if(Math.abs(A[r][i])>Math.abs(A[p][i]))p=r;[A[i],A[p]]=[A[p],A[i]];[b[i],b[p]]=[b[p],b[i]];
+for(let r=i+1;r<n;r++){const f=A[r][i]/A[i][i];for(let c=i;c<n;c++)A[r][c]-=f*A[i][c];b[r]-=f*b[i]}}
+const x=Array(n).fill(0);for(let i=n-1;i>=0;i--){let s=b[i];for(let c=i+1;c<n;c++)s-=A[i][c]*x[c];x[i]=s/A[i][i]}return x}
+function lr(X,y){const p=X[0].length+1;let w=Array(p).fill(0);for(let it=0;it<25;it++){const H=Array.from({length:p},()=>Array(p).fill(0)),g=Array(p).fill(0);
+X.forEach((x,i)=>{let z=w[0];for(let a=1;a<p;a++)z+=w[a]*x[a-1];const q=sig(z),r=q-y[i],wt=q*(1-q)+1e-6;for(let a=0;a<p;a++){const xa=a?x[a-1]:1;g[a]+=r*xa;for(let b=0;b<p;b++)H[a][b]+=wt*xa*(b?x[b-1]:1)}});
+for(let a=1;a<p;a++){H[a][a]+=1e-3;g[a]+=1e-3*w[a]}const d=solve(H,g);w=w.map((v,i)=>v-d[i]);if(Math.max(...d.map(Math.abs))<1e-7)break}return w}
+const pred=(w,x)=>{let z=w[0];for(let a=0;a<x.length;a++)z+=w[a+1]*x[a];return sig(z)};
+function met(y,p,thr){const n=y.length,o=[...Array(n).keys()].sort((a,b)=>p[a]-p[b]),P=y.reduce((a,b)=>a+b,0),Nn=n-P;let sr=0,i=0;
+while(i<n){let j=i;while(j+1<n&&p[o[j+1]]==p[o[i]])j++;for(let k=i;k<=j;k++)if(y[o[k]])sr+=(i+j)/2+1;i=j+1}
+const auc=(sr-P*(P+1)/2)/(P*Nn);let tp=0,fp=0,ks=0;const roc=[[0,0]],kc=[],st=Math.ceil(n/150);
+[...o].reverse().forEach((id,k)=>{y[id]?tp++:fp++;const a=tp/P,b=fp/Nn;ks=Math.max(ks,Math.abs(a-b));if(k%st==0||k==n-1){roc.push([b,a]);kc.push([(k+1)/n,a,b])}});
+let TP=0,FP=0,FN=0,TN=0;y.forEach((v,k)=>{const h=p[k]>=thr?1:0;h&&v?TP++:h&&!v?FP++:!h&&v?FN++:TN++});
+const pr=TP/(TP+FP||1),rc=TP/(TP+FN||1);return{auc,ks,gini:2*auc-1,acc:(TP+TN)/n,prec:pr,rec:rc,f1:2*pr*rc/(pr+rc||1),roc,kc}}
+function train(){const vs=Object.values(V).filter(v=>!v.skip&&(S.fin||[]).includes(v.name));if(!vs.length){alert('Select at least one variable in step 3.');return}
+const W=vs.map(v=>{const a=[];tab(v).rows.forEach(r=>a[r.i]=r.woe);return a}),X=Array.from({length:N},(_,r)=>vs.map((v,j)=>W[j][v.idx[r]]));
+let s=7;const R=()=>(s=(s*1664525+1013904223)%4294967296)/4294967296,o=[...Array(N).keys()];for(let i=N-1;i>0;i--){const j=Math.floor(R()*(i+1));[o[i],o[j]]=[o[j],o[i]]}
+const cut=Math.floor(.7*N),tr=o.slice(0,cut),te=o.slice(cut),sub=(ix,a)=>ix.map(i=>a[i]),w=lr(sub(tr,X),sub(tr,Y)),thr=sub(tr,Y).reduce((a,b)=>a+b,0)/tr.length;
+const ev=ix=>met(sub(ix,Y),sub(ix,X).map(x=>pred(w,x)),thr),cvs=[];
+for(let f=0;f<5;f++){const ho=tr.filter((_,i)=>i%5==f),fi=tr.filter((_,i)=>i%5!=f),wf=lr(sub(fi,X),sub(fi,Y));cvs.push(met(sub(ho,Y),sub(ho,X).map(x=>pred(wf,x)),thr).auc)}
+M={vs,w,X,W,tr,te,se:cov(sub(tr,X),w),train:ev(tr),test:ev(te),cv:cvs}}
+function renderModel(){if(!M){$('#md').innerHTML='<div class="card">Choose variables in step 3, then train.</div>';return}
+const a=M.train,b=M.test,mu=M.cv.reduce((x,y)=>x+y,0)/5,sd=Math.sqrt(M.cv.reduce((x,y)=>x+(y-mu)**2,0)/5),K=[['auc','ROC-AUC'],['ks','KS'],['gini','Gini'],['acc','Accuracy'],['prec','Precision'],['rec','Recall'],['f1','F1']];
+$('#md').innerHTML=`<div class="card sc"><h2>Logistic regression on WoE (70/30 split, class threshold = train bad rate)</h2><table><tr><th>Metric</th><th>Train</th><th>Test</th><th>Gap</th></tr>${K.map(([k,n])=>`<tr><td>${n}</td><td>${fx(a[k])}</td><td>${fx(b[k])}</td><td class="${Math.abs(a[k]-b[k])>.05?'w':''}">${fx(a[k]-b[k])}</td></tr>`).join('')}</table>
+<p class="m">5-fold CV AUC on train: ${fx(mu)} ± ${fx(sd)} (${sd<.02?'stable':'check stability'}).</p></div>
+<div class="grid"><div class="card"><div class="ch" id="m1"></div></div><div class="card"><div class="ch" id="m2"></div></div><div class="card"><div class="ch" id="m3"></div></div></div>
+<div class="card sc"><h2>Coefficients</h2><table><tr><th>Term</th><th>Coefficient (on WoE)</th><th>Variable IV</th></tr><tr><td>Intercept</td><td>${fx(M.w[0])}</td><td></td></tr>${M.vs.map((v,j)=>`<tr><td>${v.name}</td><td>${fx(M.w[j+1])}</td><td>${fx(tab(v).iv)}</td></tr>`).join('')}</table></div>
+${sigCard()}${logCard()}<div class="card"><button class="p" onclick="go(4)">Build scorecard</button></div>`;
+const t=b,ac=css('--ac'),T=x=>({text:x,textStyle:{fontSize:13,color:css('--tx')}});
+ch('m1',{title:T(`ROC (test AUC ${fx(t.auc)})`),grid:GR,xAxis:{type:'value',max:1},yAxis:{type:'value',max:1},series:[{type:'line',showSymbol:false,data:t.roc,itemStyle:{color:ac}},{type:'line',showSymbol:false,data:[[0,0],[1,1]],lineStyle:{type:'dashed',color:css('--mu')}}]});
+ch('m2',{title:T(`KS curve (test KS ${fx(t.ks)})`),grid:GR,legend:{top:0,right:0,textStyle:{color:css('--mu')}},xAxis:{type:'value',max:1,name:'Population share'},yAxis:{type:'value',max:1},series:[{name:'Cum. bad',type:'line',showSymbol:false,data:t.kc.map(r=>[r[0],r[1]]),itemStyle:{color:css('--er')}},{name:'Cum. good',type:'line',showSymbol:false,data:t.kc.map(r=>[r[0],r[2]]),itemStyle:{color:ac}}]});
+ch('m3',{title:T('Cumulative gain and lift (test)'),grid:{...GR,right:20},legend:{top:0,right:0,textStyle:{color:css('--mu')}},xAxis:{type:'value',max:1,name:'Population share'},yAxis:[{type:'value',max:1},{type:'value',splitLine:{show:false}}],series:[{name:'Gain',type:'line',showSymbol:false,data:t.kc.map(r=>[r[0],r[1]]),itemStyle:{color:ac}},{name:'Lift',type:'line',yAxisIndex:1,showSymbol:false,data:t.kc.filter(r=>r[0]>.05).map(r=>[r[0],r[1]/r[0]]),itemStyle:{color:css('--wa')}}]})}
+let SC=null,TH=[.02,.1,.3,.5];
+const band=iv=>iv<TH[0]?'Reject':iv<TH[1]?'Weak':iv<TH[2]?'Medium':iv<TH[3]?'Strong':'Review for overfitting';
+function woeCol(v){const a=[];tab(v).rows.forEach(r=>a[r.i]=r.woe);return v.idx.map(i=>a[i])}
+function rank(a){const o=a.map((x,i)=>i).sort((p,q)=>a[p]-a[q]),r=Array(a.length);let i=0;while(i<o.length){let j=i;while(j+1<o.length&&a[o[j+1]]==a[o[i]])j++;for(let k=i;k<=j;k++)r[o[k]]=(i+j)/2;i=j+1}return r}
+function corr(a,b){const n=a.length;let ma=0,mb=0,s=0,x=0,y=0;for(let i=0;i<n;i++){ma+=a[i];mb+=b[i]}ma/=n;mb/=n;for(let i=0;i<n;i++){const p=a[i]-ma,q=b[i]-mb;s+=p*q;x+=p*p;y+=q*q}return s/Math.sqrt(x*y||1)}
+function st1(){const R=Object.values(V).filter(v=>!v.skip).map(v=>{const t=tab(v),iv=t.iv;let why='';if(iv<TH[0])why='Rejected due to low IV ('+iv.toFixed(3)+')';else if(iv>TH[3])why='IV '+iv.toFixed(3)+' above '+TH[3]+': review for overfitting';else if(v.miss>.5)why='Rejected due to high missing ('+pc(v.miss)+')';return{v,iv,t,why}});S.s1=R;S.ov1=S.ov1||{};S.acc=R.filter(r=>S.ov1[r.v.name]??!r.why).map(r=>r.v.name);S.sov={};S.vk=null;S.sfs=null;S.cls=null;S.pick=null;S.fin=null}
+function sfs(){const vs=S.acc.map(n=>V[n]),cols=vs.map(woeCol);let s=7;const R=()=>(s=(s*1664525+1013904223)%4294967296)/4294967296,o=[...Array(N).keys()];for(let i=N-1;i>0;i--){const j=Math.floor(R()*(i+1));[o[i],o[j]]=[o[j],o[i]]}
+const ix=o.slice(0,Math.min(2500,Math.floor(.7*N))),y=ix.map(i=>Y[i]),sel=[],rk=[];let pa=.5,pkk=0,rem=vs.map((_,i)=>i);
+while(rem.length){let b=null;for(const c of rem){const cs=[...sel,c],X=ix.map(i=>cs.map(j=>cols[j][i])),w=lr(X,y),m=met(y,X.map(x=>pred(w,x)),.5);if(!b||m.auc>b.auc)b={c,auc:m.auc,ks:m.ks}}
+sel.push(b.c);rem=rem.filter(c=>c!=b.c);rk.push({v:vs[b.c].name,auc:b.auc,ks:b.ks,da:b.auc-pa,dk:b.ks-pkk});pa=b.auc;pkk=b.ks}S.sfs=rk;setTop(Math.min(S.top||20,rk.length))}
+function setTop(n){S.top=n;S.topv=S.sfs.filter((r,i)=>(S.sov||{})[r.v]??i<n).map(r=>r.v);S.cls=null;S.pick=null;S.fin=null}
+const topN=n=>{if(n>0){setTop(n);renderSel2()}},pk=(n,on)=>{on?S.pick.add(n):S.pick.delete(n);S.fin=null;renderSel2()};
+function runSfs(){$('#sfsb').textContent='Running forward selection…';setTimeout(()=>{sfs();renderSel2()},30)}
+function clus(){const nm=S.topv,vs=nm.map(n=>V[n]),W=vs.map(woeCol),Rk=W.map(rank),C=nm.map((_,i)=>nm.map((_,j)=>i==j?1:corr(Rk[i],Rk[j])));let cl=nm.map((_,i)=>[i]);
+for(;;){let b=-1,bi,bj;for(let i=0;i<cl.length;i++)for(let j=i+1;j<cl.length;j++){let s=0;cl[i].forEach(a=>cl[j].forEach(c=>s+=Math.abs(C[a][c])));s/=cl[i].length*cl[j].length;if(s>b){b=s;bi=i;bj=j}}if(b<S.r)break;cl[bi]=cl[bi].concat(cl[bj]);cl.splice(bj,1)}
+S.C=C;S.cls=cl.map(c=>c.map(i=>{const t=tab(vs[i]),m=met(Y,W[i].map(x=>-x),.5);return{n:nm[i],i,iv:t.iv,ks:m.ks,gini:m.gini}}));S.pick=new Set(S.cls.map(c=>c.reduce((a,b)=>b.iv>a.iv?b:a).n));S.rep=new Set(S.pick);S.vk=null;S.W=Object.fromEntries(nm.map((x,i)=>[x,W[i]]));S.fin=null}
+function vifs(nm){const K=nm.join('|');if(S.vk==K)return S.vv;const R=vifs0(nm);S.vk=K;S.vv=R;return R}
+function vifs0(nm){if(nm.length<2)return nm.map(n=>[n,1]);const X=nm.map(n=>S.W[n]);return nm.map((n,a)=>{const o=nm.map((_,b)=>b).filter(b=>b!=a),y=X[a],my=y.reduce((s,x)=>s+x,0)/N,mo=o.map(b=>X[b].reduce((s,x)=>s+x,0)/N),A=o.map(()=>o.map(()=>0)),r=o.map(()=>0);
+for(let i=0;i<N;i++){const d=o.map((b,j)=>X[b][i]-mo[j]);for(let p=0;p<o.length;p++){r[p]+=d[p]*(y[i]-my);for(let q=0;q<o.length;q++)A[p][q]+=d[p]*d[q]}}
+for(let p=0;p<o.length;p++)A[p][p]+=1e-9;const bt=solve(A,r.slice());let sse=0,sst=0;for(let i=0;i<N;i++){let f=0;o.forEach((b,j)=>f+=bt[j]*(X[b][i]-mo[j]));sse+=(y[i]-my-f)**2;sst+=(y[i]-my)**2}return[n,sst/Math.max(sse,1e-9)]})}
+function autoV(){for(let g=0;g<50&&S.pick.size>1;g++){const vf=vifs([...S.pick]).sort((a,b)=>b[1]-a[1]);if(vf[0][1]<=(S.vif||3))break;S.pick.delete(vf[0][0])}S.fin=null;renderSel2()}
+function renderSel2(){const vs=Object.values(V).filter(v=>!v.skip);if(!vs.length){$('#sel').innerHTML='Load data first.';return}S.vif=S.vif||3;S.r=S.r||.6;
+const sg=vs.map(v=>v.k+':'+tab(v).iv.toFixed(4)).join();if(S.sg!==sg){S.sg=sg;st1()}
+const A=S.s1.slice().sort((a,b)=>b.iv-a.iv),inp=(i,l)=>`<label>${l} <input type="number" step="0.01" value="${TH[i]}" style="width:70px" onchange="TH[${i}]=+this.value;st1();renderSel2()"></label>`;
+let h=`<h2>Stage 1: IV screening</h2><div class="row">${inp(0,'Reject below')}${inp(1,'Weak up to')}${inp(2,'Medium up to')}${inp(3,'Strong up to (review above)')}</div><p>${S.acc.length} accepted, ${A.length-S.acc.length} rejected.</p><div class="sc"><table><tr><th>Variable</th><th>IV</th><th>Band</th><th>Missing</th><th>Bins</th><th>Monotonic</th><th>Recommended</th><th>Select</th><th>Reason</th></tr>${A.slice(0,S.all?9e9:50).map(r=>`<tr><td>${r.v.name}</td><td>${fx(r.iv)}</td><td>${band(r.iv)}</td><td>${pc(r.v.miss)}</td><td>${r.t.rows.length}</td><td class="${r.t.mono?'g':'w'}">${r.t.mono?'yes':'no'}</td><td class="${r.why?'r':'g'}">${r.why?'Reject':'Keep'}</td><td><input type="checkbox" ${S.ov1[r.v.name]??!r.why?'checked':''} onchange="S.ov1['${r.v.name}']=this.checked;st1();renderSel2()">${(S.ov1[r.v.name]??!r.why)!=!r.why?' <span class="w">User override</span>':''}</td><td class="m">${r.why||'Passes IV screen'}</td></tr>`).join('')}</table></div>${A.length>50?`<button onclick="S.all=!S.all;renderSel2()">${S.all?'Show top 50':'Show all '+A.length}</button>`:''}`;
+h+=`<h2 style="margin-top:16px">Stage 2: sequential feature selection (forward)</h2><p class="m">Variables are added one at a time by best AUC gain on a training subsample, scored in-sample so the test set stays untouched.</p><div class="row"><button class="p" id="sfsb" onclick="runSfs()">${S.sfs?'Re-run':'Run'} forward selection on ${S.acc.length} variables</button></div>`;
+if(S.sfs){h+=`<div class="row">Keep top ${[10,20,30,40].map(n=>`<button class="${S.top==n?'p':''}" onclick="topN(${n})">${n}</button>`).join('')}<input type="number" min="1" value="${S.top}" style="width:70px" onchange="topN(+this.value)"> (${S.topv.length} selected)</div><div class="sc"><table><tr><th>Rank</th><th>Variable</th><th>Incremental KS</th><th>Incremental AUC</th><th>Cumulative AUC</th><th>Recommended</th><th>Select</th></tr>${S.sfs.map((r,i)=>`<tr class="${i<S.top?'':'m'}"><td>${i+1}</td><td>${r.v}</td><td>${fx(r.dk)}</td><td>${fx(r.da)}</td><td>${fx(r.auc)}</td><td class="${i<S.top?'g':'r'}">${i<S.top?'Keep':'Remove (rank '+(i+1)+' > '+S.top+')'}</td><td><input type="checkbox" ${(S.sov||{})[r.v]??i<S.top?'checked':''} onchange="(S.sov=S.sov||{})['${r.v}']=this.checked;setTop(S.top);renderSel2()">${((S.sov||{})[r.v]??i<S.top)!=i<S.top?' <span class="w">User override</span>':''}</td></tr>`).join('')}</table></div>`;
+h+=`<h2 style="margin-top:16px">Stage 3: variable clustering (Spearman on WoE, average-linkage)</h2><div class="row"><label>Merge clusters while average |ρ| ≥ <input type="number" step="0.05" min="0.1" max="1" value="${S.r}" style="width:70px" onchange="S.r=+this.value"></label><button class="p" onclick="clus();renderSel2()">Cluster ${S.topv.length} variables</button></div>`}
+if(S.cls){const pv=[...S.pick],vf=pv.length?vifs(pv):[],mx=Math.max(0,...vf.map(x=>x[1]));
+h+=`<div class="ch" id="h1" style="height:${Math.max(300,S.topv.length*24+90)}px"></div><h2 style="margin-top:16px">Refinement workspace: pick representatives, check VIF</h2><div class="sc"><table><tr><th>Cluster</th><th>Variable</th><th>IV</th><th>KS</th><th>Gini</th><th>Max |ρ| in cluster</th><th>Recommended</th><th>Use</th></tr>${S.cls.map((c,k)=>c.map((m,j)=>`<tr><td>${j?'':'Cluster '+(k+1)}</td><td>${m.n}</td><td>${fx(m.iv)}</td><td>${fx(m.ks)}</td><td>${fx(m.gini)}</td><td>${fx(Math.max(0,...c.filter(o=>o!=m).map(o=>Math.abs(S.C[m.i][o.i]))))}</td><td class="${S.rep.has(m.n)?'g':'m'}">${S.rep.has(m.n)?'Keep (best IV in cluster)':'Cluster representative not selected'}</td><td><input type="checkbox" ${S.pick.has(m.n)?'checked':''} onchange="pk('${m.n}',this.checked)">${S.pick.has(m.n)!=S.rep.has(m.n)?' <span class="w">User override</span>':''}</td></tr>`).join('')).join('')}</table></div>
+<h2 style="margin-top:16px">Stage 4: iterative VIF validation</h2><div class="row"><label>Max VIF <input type="number" step="0.5" min="1" value="${S.vif}" style="width:70px" onchange="S.vif=+this.value;renderSel2()"></label>${[2,3,5].map(n=>`<button onclick="S.vif=${n};renderSel2()">${n}</button>`).join('')}<button onclick="autoV()">Drop highest-VIF variables until compliant</button></div><div class="sc"><table><tr><th>Variable</th><th>VIF</th><th>Status</th><th>Select</th></tr>${vf.map(([n,x])=>`<tr><td>${n}</td><td class="${x>S.vif?'r':'g'}">${fx(x,2)}</td><td class="${x>S.vif?'r':''}">${x>S.vif?'High VIF ('+fx(x,2)+'): multicollinearity risk. Swap within its cluster, or keep as an override':'ok'}</td><td><input type="checkbox" checked onchange="pk('${n}',false)">${x>S.vif?' <span class="w">User override</span>':''}</td></tr>`).join('')}</table></div><div class="row" style="margin-top:10px"><button class="p" onclick="S.fin=[...S.pick];renderSel2()">Approve final variable set (${pv.length})</button>${mx>S.vif?'<span class="w">Some variables exceed the VIF limit</span>':''}</div>`;
+if(S.fin)h+=`<p class="g">Approved: ${S.fin.join(', ')}</p><button class="p" onclick="train();go(3)">Train logistic regression</button>`}
+$('#sel').innerHTML=h;
+if(S.cls){const nm=S.topv,d=[];S.C.forEach((r,i)=>r.forEach((x,j)=>d.push([j,i,+x.toFixed(2)])));ch('h1',{title:{text:'Spearman correlation of WoE-transformed variables',textStyle:{fontSize:13,color:css('--tx')}},tooltip:{},grid:{left:10,right:10,top:44,bottom:50,containLabel:true},xAxis:{type:'category',data:nm,axisLabel:{rotate:40}},yAxis:{type:'category',data:nm,inverse:true},visualMap:{min:-1,max:1,calculable:true,orient:'horizontal',left:'center',bottom:0,inRange:{color:[css('--er'),css('--card'),css('--ac')]},textStyle:{color:css('--mu')}},series:[{type:'heatmap',data:d,label:{show:nm.length<12,fontSize:10}}]})}}
+const erfc=x=>{const t=1/(1+.3275911*x),y=t*(.254829592+t*(-.284496736+t*(1.421413741+t*(-1.453152027+t*1.061405429))));return y*Math.exp(-x*x)};
+function cov(X,w){const p=w.length,H=Array.from({length:p},()=>Array(p).fill(0));X.forEach(x=>{let z=w[0];for(let a=1;a<p;a++)z+=w[a]*x[a-1];const q=sig(z),wt=q*(1-q)+1e-9;for(let a=0;a<p;a++)for(let b=0;b<p;b++)H[a][b]+=wt*(a?x[a-1]:1)*(b?x[b-1]:1)});return Array.from({length:p},(_,k)=>solve(H.map(r=>r.slice()),Array.from({length:p},(_,i)=>+(i==k)))[k])}
+function sigCard(){const al=S.al||.05,rows=M.w.map((b,i)=>{const s=Math.sqrt(M.se[i]),z=b/s,p=erfc(Math.abs(z)/Math.SQRT2);return{n:i?M.vs[i-1].name:'Intercept',b,s,wd:z*z,p,or:Math.exp(b),bad:i>0&&p>al}});S.bad=rows.filter(r=>r.bad).map(r=>r.n);
+return`<div class="card sc"><h2>Statistical significance (train set)</h2><div class="row"><label>Significance level <select onchange="S.al=+this.value;renderModel()">${[.01,.05,.1].map(x=>`<option ${x==al?'selected':''}>${x}</option>`).join('')}</select></label>${S.bad.length?`<button class="p" onclick="dropIns()">Remove ${S.bad.length} insignificant and retrain</button>`:'<span class="g">All variables significant</span>'}</div><table><tr><th>Variable</th><th>Coefficient</th><th>Std error</th><th>Wald</th><th>P-value</th><th>Odds ratio</th></tr>${rows.map(r=>`<tr class="${r.bad?'r':''}"><td>${r.n}</td><td>${fx(r.b)}</td><td>${fx(r.s)}</td><td>${fx(r.wd,2)}</td><td>${r.p<.0001?'<0.0001':fx(r.p,4)}</td><td>${fx(r.or)}</td></tr>`).join('')}</table></div>`}
+function ovrows(){const o=[['stage','variable','recommended','user_decision','reason']];
+(S.s1||[]).forEach(r=>{const n=r.v.name,sel=S.ov1[n]??!r.why;if(sel!=!r.why)o.push(['IV screening',n,r.why?'Reject':'Keep',sel?'Kept':'Removed',r.why||'Passed IV screen'])});
+(S.sfs||[]).forEach((r,i)=>{const sel=(S.sov||{})[r.v]??i<S.top;if(sel!=i<S.top)o.push(['SFS',r.v,i<S.top?'Keep':'Remove (rank '+(i+1)+' > '+S.top+')',sel?'Kept':'Removed','SFS rank '+(i+1)])});
+(S.cls||[]).forEach(c=>c.forEach(m=>{const p=S.pick.has(m.n),rp=S.rep.has(m.n);if(p!=rp)o.push(['Clustering',m.n,rp?'Representative':'Not selected',p?'Kept':'Removed',rp?'Representative deselected':'Cluster representative not selected'])}));
+if(S.fin&&S.W)vifs(S.fin).forEach(([n,x])=>{if(x>S.vif)o.push(['VIF',n,'High VIF','Kept','VIF '+x.toFixed(2)+' exceeds '+S.vif])});return o}
+function logCard(){const o=ovrows();return`<div class="card sc"><h2>User override log</h2>${o.length>1?`<table><tr>${o[0].map(h=>`<th>${h}</th>`).join('')}</tr>${o.slice(1).map(r=>`<tr>${r.map(x=>`<td>${x}</td>`).join('')}</tr>`).join('')}</table>`:'<p class="m">No overrides: every recommendation was accepted.</p>'}</div>`}
+function dropIns(){S.fin=S.fin.filter(n=>!S.bad.includes(n));train();renderModel()}
+function dtab(ix){const o=ix.slice().sort((a,b)=>SC.sc[a]-SC.sc[b]),n=o.length,B=o.reduce((a,i)=>a+Y[i],0),G=n-B;let cg=0,cb=0;const rows=[];for(let d=0;d<10;d++){const s=o.slice(Math.floor(n*d/10),Math.floor(n*(d+1)/10)),b=s.reduce((a,i)=>a+Y[i],0),g=s.length-b;cg+=g;cb+=b;rows.push({d:'D'+(d+1),lo:SC.sc[s[0]],hi:SC.sc[s[s.length-1]],n:s.length,g,b,br:b/s.length,cg:cg/G,cb:cb/B,lift:(b/s.length)/(B/n),cap:b/B,ks:Math.abs(cb/B-cg/G)})}return rows}
+function dec(){const T=dtab(M.tr),E=dtab(M.te),tb=(t,r)=>`<div class="card sc"><h2>${t} decile table (D1 = lowest scores)</h2><table><tr><th>Decile</th><th>Score range</th><th>Population</th><th>Good</th><th>Bad</th><th>Bad rate</th><th>Cum good %</th><th>Cum bad %</th><th>Lift</th><th>Capture</th><th>KS</th></tr>${r.map(x=>`<tr><td>${x.d}</td><td>${x.lo}-${x.hi}</td><td>${x.n}</td><td>${x.g}</td><td>${x.b}</td><td>${pc(x.br)}</td><td>${pc(x.cg)}</td><td>${pc(x.cb)}</td><td>${fx(x.lift,2)}</td><td>${pc(x.cap)}</td><td>${pc(x.ks)}</td></tr>`).join('')}</table></div>`;
+$('#dc').innerHTML=`<div class="grid"><div class="card"><div class="ch" id="d1"></div></div><div class="card"><div class="ch" id="d2"></div></div></div>`+tb('Train',T)+tb('Test',E);
+const L=T.map(x=>x.d),t0=x=>({text:x,textStyle:{fontSize:13,color:css('--tx')}}),lg={top:0,right:0,textStyle:{color:css('--mu')}};
+ch('d1',{title:t0('Bad rate and lift by decile'),grid:{...GR,right:20},legend:lg,xAxis:{type:'category',data:L},yAxis:[{type:'value',axisLabel:{formatter:x=>(x*100).toFixed(0)+'%'}},{type:'value',splitLine:{show:false}}],series:[{name:'Train bad rate',type:'bar',data:T.map(x=>+x.br.toFixed(4))},{name:'Test bad rate',type:'bar',data:E.map(x=>+x.br.toFixed(4))},{name:'Test lift',type:'line',yAxisIndex:1,data:E.map(x=>+x.lift.toFixed(2))}]});
+ch('d2',{title:t0('Gains and KS by decile'),grid:GR,legend:lg,xAxis:{type:'category',data:L},yAxis:{type:'value',max:1},series:[{name:'Train cum bad',type:'line',data:T.map(x=>x.cb)},{name:'Test cum bad',type:'line',data:E.map(x=>x.cb)},{name:'Test cum good',type:'line',data:E.map(x=>x.cg)},{name:'Test KS',type:'bar',data:E.map(x=>x.ks)}]})}
+function build(){const g=i=>$(i)?+$(i).value:null,b=g('#bs')||600,o=g('#od')||50,pd=g('#pd')||20,F=pd/Math.log(2),off=b-F*Math.log(o),n=M.vs.length;
+const P=M.vs.map((v,j)=>{const a=[];tab(v).rows.forEach(r=>a[r.i]=Math.round(-(M.w[j+1]*r.woe+M.w[0]/n)*F+off/n));return a});
+const sc=Array.from({length:N},(_,r)=>P.reduce((s,a,j)=>s+a[M.vs[j].idx[r]],0));SC={P,sc,F,off,b,o,pd};return SC}
+function renderCard(){if(!M){$('#cd').innerHTML='<div class="card">Train the model first.</div>';return}
+if(!$('#bs')){$('#cd').innerHTML=`<div class="card"><h2>Scaling</h2><div class="row"><label>Base score <input id="bs" type="number" value="600" style="width:80px"></label><label>Base odds (good:bad) <input id="od" type="number" value="50" style="width:80px"></label><label>PDO <input id="pd" type="number" value="20" style="width:80px"></label><button class="p" onclick="renderCard()">Apply</button></div><div id="sx"></div></div><div class="grid"><div class="card"><div class="ch" id="k1"></div></div><div class="card"><div class="ch" id="k2"></div></div></div><div class="card sc" id="kt"></div><div id="dc"></div><div class="card"><h2>Reason codes</h2><div class="row"><label>Row number <input id="rn" type="number" value="1" min="1" style="width:90px" onchange="reason()"></label></div><div id="rc"></div></div>`}
+const s=build(),sc=s.sc,mn=Math.min(...sc),mx=Math.max(...sc),nb=20,w=(mx-mn)/nb||1,g=Array(nb).fill(0),bd=Array(nb).fill(0);
+sc.forEach((x,r)=>{const i=Math.min(nb-1,Math.floor((x-mn)/w));Y[r]?bd[i]++:g[i]++});
+$('#sx').innerHTML=`<p class="m">Factor = PDO / ln 2 = ${fx(s.F,2)}; offset = base score − factor × ln(base odds) = ${fx(s.off,1)}. Score range in this data: ${mn} to ${mx}.</p>`;
+const T=x=>({text:x,textStyle:{fontSize:13,color:css('--tx')}}),Lb=Array.from({length:nb},(_,i)=>Math.round(mn+i*w));
+ch('k1',{title:T('Score distribution'),grid:GR,legend:{top:0,right:0,textStyle:{color:css('--mu')}},xAxis:{type:'category',data:Lb},yAxis:{type:'value'},series:[{name:'Good',type:'bar',stack:'a',data:g,itemStyle:{color:css('--ac')}},{name:'Bad',type:'bar',stack:'a',data:bd,itemStyle:{color:css('--er')}}]});
+const rg=M.vs.map((v,j)=>Math.max(...s.P[j].filter(x=>x!==undefined))-Math.min(...s.P[j].filter(x=>x!==undefined)));
+ch('k2',{title:T('Feature score contribution (points range)'),grid:GR,xAxis:{type:'value'},yAxis:{type:'category',data:M.vs.map(v=>v.name)},series:[{type:'bar',data:rg,itemStyle:{color:css('--ac')}}]});
+$('#kt').innerHTML=`<h2>Scorecard points</h2><table><tr><th>Variable</th><th>Bin</th><th>Bad rate</th><th>WoE</th><th>Points</th></tr>${M.vs.map((v,j)=>tab(v).rows.map(r=>`<tr><td>${v.name}</td><td>${r.label}</td><td>${pc(r.br)}</td><td>${fx(r.woe)}</td><td><b>${s.P[j][r.i]}</b></td></tr>`).join('')).join('')}</table>`;reason();dec()}
+function reason(){if(!SC)return;const r=Math.max(0,(+$('#rn').value||1)-1);if(r>=N)return;const L=M.vs.map((v,j)=>{const a=SC.P[j].filter(x=>x!==undefined),p=SC.P[j][v.idx[r]],t=tab(v).rows.find(x=>x.i==v.idx[r]);return{v:v.name,lost:Math.max(...a)-p,lab:t.label}}).sort((a,b)=>b.lost-a.lost).slice(0,4);
+$('#rc').innerHTML=`<p>Score ${SC.sc[r]} (${Y[r]?'bad':'good'}). Largest point losses versus the best bin of each variable:</p><ol>${L.map(x=>`<li>${x.v} = ${x.lab}: −${x.lost} points</li>`).join('')}</ol>`}
+function ex(k){let rows=[];const vs=Object.values(V).filter(v=>!v.skip),H=['variable','bin','count','good','bad','bad_rate','woe','iv'],f=r=>[r.label,r.n,r.good,r.bad,r.br.toFixed(4),r.woe.toFixed(4),r.iv.toFixed(5)];
+if(k=='fine')rows=[H,...vs.flatMap(v=>v.fine.map(r=>[v.name,...f(r)]))];
+else if(k=='coarse')rows=[H,...vs.flatMap(v=>tab(v).rows.map(r=>[v.name,...f(r)]))];
+else if(k=='iv')rows=[['variable','iv','recommendation','flags','selected'],...vs.map(v=>{const r=rec(v);return[v.name,r.iv.toFixed(4),r.r,r.fl.join('; '),S.sel[v.name]??r.keep]})];
+else if(k=='log')rows=ovrows();else if(!M){alert('Train the model first.');return}
+else if(k=='model')rows=[['metric','train','test'],...['auc','ks','gini','acc','prec','rec','f1'].map(m=>[m,M.train[m].toFixed(4),M.test[m].toFixed(4)]),['cv_auc_folds',M.cv.map(x=>x.toFixed(4)).join(' '),'']];
+else{build();rows=[['variable','bin','woe','points'],...M.vs.flatMap((v,j)=>tab(v).rows.map(r=>[v.name,r.label,r.woe.toFixed(4),SC.P[j][r.i]]))]}
+const t=rows.map(r=>r.map(x=>{x=String(x);return/[",\n]/.test(x)?`"${x.replace(/"/g,'""')}"`:x}).join(',')).join('\n');$('#ta').value=t;
+try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download=k+'.csv';a.click()}catch(e){}}
+go(0);
+</script></body></html>
